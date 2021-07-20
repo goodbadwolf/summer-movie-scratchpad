@@ -16,7 +16,7 @@
 using std::cerr;
 using std::endl;
 
-// #define VERTEX_LIGHTING
+//#define VERTEX_LIGHTING
 #define FRAGMENT_LIGHTING
 
 void _print_shader_info_log(GLuint shader_index)
