@@ -109,44 +109,93 @@ void GetTimeStep(int ts, float **tri_points, float **tri_normals, int **tri_indi
   delete[] buff;
 }
 
-GLuint LoadAneurysmModel(int ts, int &num_tris)
+struct ModelGLState
+{
+  bool initialized;
+  GLuint vao;
+  GLuint points_vbo;
+  GLuint data_vbo;
+  GLuint normals_vbo;
+  GLuint index_ebo;
+
+  ModelGLState()
+      : initialized(false),
+        vao(0),
+        points_vbo(0),
+        data_vbo(0),
+        normals_vbo(0),
+        index_ebo(0)
+  {
+  }
+};
+
+GLuint LoadAneurysmModel(int ts, int &num_tris, ModelGLState &glState)
 {
   float *tri_points, *tri_normals, *tri_data;
   int *tri_indices;
   int num_points;
   GetTimeStep(ts, &tri_points, &tri_normals, &tri_indices, &tri_data, num_points, num_tris);
 
-  GLuint vao = 0;
-  glGenVertexArrays(1, &vao);
-  glBindVertexArray(vao);
+  if (!glState.initialized)
+  {
+    glGenVertexArrays(1, &glState.vao);
+    GLuint bufferObjects[4];
+    glGenBuffers(4, &bufferObjects[0]);
+    glState.points_vbo = bufferObjects[0];
+    glState.data_vbo = bufferObjects[1];
+    glState.normals_vbo = bufferObjects[2];
+    glState.index_ebo = bufferObjects[3];
+  }
 
-  GLuint points_vbo = 0;
-  glGenBuffers(1, &points_vbo);
-  glBindBuffer(GL_ARRAY_BUFFER, points_vbo);
-  glBufferData(GL_ARRAY_BUFFER, 3 * num_points * sizeof(float), tri_points, GL_STATIC_DRAW);
+  glBindVertexArray(glState.vao);
 
-  GLuint data_vbo = 0;
-  glGenBuffers(1, &data_vbo);
-  glBindBuffer(GL_ARRAY_BUFFER, data_vbo);
-  glBufferData(GL_ARRAY_BUFFER, num_points * sizeof(float), tri_data, GL_STATIC_DRAW);
+  glBindBuffer(GL_ARRAY_BUFFER, glState.points_vbo);
+  if (glState.initialized)
+  {
+    glBufferSubData(GL_ARRAY_BUFFER, 0, 3 * num_points * sizeof(float), tri_points);
+  }
+  else
+  {
+    glBufferData(GL_ARRAY_BUFFER, 3 * num_points * sizeof(float), tri_points, GL_DYNAMIC_DRAW);
+  }
 
-  GLuint normals_vbo = 0;
-  glGenBuffers(1, &normals_vbo);
-  glBindBuffer(GL_ARRAY_BUFFER, normals_vbo);
-  glBufferData(GL_ARRAY_BUFFER, 3 * num_points * sizeof(float), tri_normals, GL_STATIC_DRAW);
+  glBindBuffer(GL_ARRAY_BUFFER, glState.data_vbo);
+  if (glState.initialized)
+  {
+    glBufferSubData(GL_ARRAY_BUFFER, 0, num_points * sizeof(float), tri_data);
+  }
+  else
+  {
+    glBufferData(GL_ARRAY_BUFFER, num_points * sizeof(float), tri_data, GL_DYNAMIC_DRAW);
+  }
 
-  GLuint index_vbo; // Index buffer object
-  glGenBuffers(1, &index_vbo);
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, index_vbo);
-  glBufferData(GL_ELEMENT_ARRAY_BUFFER, 3 * num_tris * sizeof(GLuint), tri_indices, GL_STATIC_DRAW);
+  glBindBuffer(GL_ARRAY_BUFFER, glState.normals_vbo);
+  if (glState.initialized)
+  {
+    glBufferSubData(GL_ARRAY_BUFFER, 0, 3 * num_points * sizeof(float), tri_normals);
+  }
+  else
+  {
+    glBufferData(GL_ARRAY_BUFFER, 3 * num_points * sizeof(float), tri_normals, GL_STATIC_DRAW);
+  }
 
-  glBindBuffer(GL_ARRAY_BUFFER, points_vbo);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, glState.index_ebo);
+  if (glState.initialized)
+  {
+    glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, 3 * num_tris * sizeof(GLuint), tri_indices);
+  }
+  else
+  {
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, 3 * num_tris * sizeof(GLuint), tri_indices, GL_DYNAMIC_DRAW);
+  }
+
+  glBindBuffer(GL_ARRAY_BUFFER, glState.points_vbo);
   glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, NULL);
-  glBindBuffer(GL_ARRAY_BUFFER, data_vbo);
+  glBindBuffer(GL_ARRAY_BUFFER, glState.data_vbo);
   glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 0, NULL);
-  glBindBuffer(GL_ARRAY_BUFFER, normals_vbo);
+  glBindBuffer(GL_ARRAY_BUFFER, glState.normals_vbo);
   glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, NULL);
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, index_vbo);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, glState.index_ebo);
 
   glEnableVertexAttribArray(0);
   glEnableVertexAttribArray(1);
@@ -157,7 +206,8 @@ GLuint LoadAneurysmModel(int ts, int &num_tris)
   delete[] tri_normals;
   delete[] tri_indices;
 
-  return vao;
+  glState.initialized = true;
+  return glState.vao;
 }
 
 #ifdef VERTEX_LIGHTING
@@ -339,45 +389,65 @@ int main()
   float distance = 50.0;
   float max_phi = 2.0 * glm::pi<float>();
   float max_theta = 2.0 * glm::pi<float>();
-  float inc = glm::pi<float>() / 100.0;
+  ModelGLState modelState;
+
+  const float frameSpeed = 1.0 / 60.0;
+  const float updateSpeed = 1.0 / 60.0;
+  float lastUpdateTime = 0.0;
+  float lastFrameTime = 0.0;
+
+  float inc_phi = 0 * (max_phi * updateSpeed) / 10.0;
+  float inc_theta = (max_phi * updateSpeed) / 10.0;
+  inc_theta *= 1.5;
   while (!glfwWindowShouldClose(window))
   {
-    // wipe the drawing surface clear
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    float now = glfwGetTime();
+    float deltaUpdateTime = now - lastUpdateTime;
+    float deltaFrameTime = now - lastFrameTime;
 
-    vao = LoadAneurysmModel(counter, num_tris);
-    counter = (counter + 1) % 200;
+    if (deltaUpdateTime >= updateSpeed)
+    {
+      vao = LoadAneurysmModel(counter, num_tris, modelState);
+      counter = (counter + 1) % 200;
 
-    camera = glm::vec3(
-        distance * cos(phi) * sin(theta),
-        distance * sin(phi) * sin(theta),
-        distance * cos(theta));
-    View = glm::lookAt(
-        camera, // Camera in world space
-        origin, // looks at the origin
-        up      // and the head is up
-    );
-    mvp = Projection * View * Model;
+      camera = glm::vec3(
+          distance * cos(phi) * sin(theta),
+          distance * sin(phi) * sin(theta),
+          distance * cos(theta));
+      View = glm::lookAt(
+          camera, // Camera in world space
+          origin, // looks at the origin
+          up      // and the head is up
+      );
+      mvp = Projection * View * Model;
 
-    GLuint mvploc = glGetUniformLocation(shader_programme, "MVP");
-    glUniformMatrix4fv(mvploc, 1, GL_FALSE, &mvp[0][0]);
-    GLuint camloc = glGetUniformLocation(shader_programme, "cameraloc");
-    glUniform3fv(camloc, 1, &camera[0]);
-    glm::vec3 lightdir = glm::normalize(camera - origin); // Direction of light
-    GLuint ldirloc = glGetUniformLocation(shader_programme, "lightdir");
-    glUniform3fv(ldirloc, 1, &lightdir[0]);
+      GLuint mvploc = glGetUniformLocation(shader_programme, "MVP");
+      glUniformMatrix4fv(mvploc, 1, GL_FALSE, &mvp[0][0]);
+      GLuint camloc = glGetUniformLocation(shader_programme, "cameraloc");
+      glUniform3fv(camloc, 1, &camera[0]);
+      glm::vec3 lightdir = glm::normalize(camera - origin); // Direction of light
+      GLuint ldirloc = glGetUniformLocation(shader_programme, "lightdir");
+      glUniform3fv(ldirloc, 1, &lightdir[0]);
 
-    phi = fmod(phi + inc, max_phi);
-    theta = fmod(theta + 1.5 * inc, max_theta);
+      phi = fmod(phi + inc_phi, max_phi);
+      theta = fmod(theta + inc_theta, max_theta);
 
-    glBindVertexArray(vao);
-    // Draw triangles
-    glDrawElements(GL_TRIANGLES, 3 * num_tris, GL_UNSIGNED_INT, NULL);
+      lastUpdateTime = glfwGetTime();
+    }
 
     // update other events like input handling
     glfwPollEvents();
-    // put the stuff we've been drawing onto the display
-    glfwSwapBuffers(window);
+
+    if (deltaFrameTime >= frameSpeed)
+    {
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+      glBindVertexArray(vao);
+      // Draw triangles
+      glDrawElements(GL_TRIANGLES, 3 * num_tris, GL_UNSIGNED_INT, NULL);
+      // put the stuff we've been drawing onto the display
+      glfwSwapBuffers(window);
+      lastFrameTime = glfwGetTime();
+    }
   }
 
   // close GL context and any other GLFW resources
