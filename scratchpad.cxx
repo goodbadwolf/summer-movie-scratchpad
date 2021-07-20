@@ -16,7 +16,7 @@
 using std::cerr;
 using std::endl;
 
-//#define VERTEX_LIGHTING
+// #define VERTEX_LIGHTING
 #define FRAGMENT_LIGHTING
 
 void _print_shader_info_log(GLuint shader_index)
@@ -116,6 +116,10 @@ GLuint LoadAneurysmModel(int ts, int &num_tris)
   int num_points;
   GetTimeStep(ts, &tri_points, &tri_normals, &tri_indices, &tri_data, num_points, num_tris);
 
+  GLuint vao = 0;
+  glGenVertexArrays(1, &vao);
+  glBindVertexArray(vao);
+
   GLuint points_vbo = 0;
   glGenBuffers(1, &points_vbo);
   glBindBuffer(GL_ARRAY_BUFFER, points_vbo);
@@ -136,9 +140,6 @@ GLuint LoadAneurysmModel(int ts, int &num_tris)
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, index_vbo);
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, 3 * num_tris * sizeof(GLuint), tri_indices, GL_STATIC_DRAW);
 
-  GLuint vao = 0;
-  glGenVertexArrays(1, &vao);
-  glBindVertexArray(vao);
   glBindBuffer(GL_ARRAY_BUFFER, points_vbo);
   glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, NULL);
   glBindBuffer(GL_ARRAY_BUFFER, data_vbo);
@@ -333,14 +334,42 @@ int main()
   glUniform4fv(lcoeloc, 1, &lightcoeff[0]);
 
   int counter = 0;
+  float phi = 0.0;
+  float theta = 0.0;
+  float distance = 50.0;
+  float max_phi = 2.0 * glm::pi<float>();
+  float max_theta = 2.0 * glm::pi<float>();
+  float inc = glm::pi<float>() / 100.0;
   while (!glfwWindowShouldClose(window))
   {
     // wipe the drawing surface clear
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     vao = LoadAneurysmModel(counter, num_tris);
-    counter++;
-    counter = counter % 200;
+    counter = (counter + 1) % 200;
+
+    camera = glm::vec3(
+        distance * cos(phi) * sin(theta),
+        distance * sin(phi) * sin(theta),
+        distance * cos(theta));
+    View = glm::lookAt(
+        camera, // Camera in world space
+        origin, // looks at the origin
+        up      // and the head is up
+    );
+    mvp = Projection * View * Model;
+
+    GLuint mvploc = glGetUniformLocation(shader_programme, "MVP");
+    glUniformMatrix4fv(mvploc, 1, GL_FALSE, &mvp[0][0]);
+    GLuint camloc = glGetUniformLocation(shader_programme, "cameraloc");
+    glUniform3fv(camloc, 1, &camera[0]);
+    glm::vec3 lightdir = glm::normalize(camera - origin); // Direction of light
+    GLuint ldirloc = glGetUniformLocation(shader_programme, "lightdir");
+    glUniform3fv(ldirloc, 1, &lightdir[0]);
+
+    phi = fmod(phi + inc, max_phi);
+    theta = fmod(theta + 1.5 * inc, max_theta);
+
     glBindVertexArray(vao);
     // Draw triangles
     glDrawElements(GL_TRIANGLES, 3 * num_tris, GL_UNSIGNED_INT, NULL);
