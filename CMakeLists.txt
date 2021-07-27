@@ -11,8 +11,6 @@ endmacro()
 
 project(scratchpad)
 
-#SET(OpenGL_GL_PREFERENCE LEGACY)
-
 find_package(OpenGL REQUIRED)
 find_package(glfw3 3.3 REQUIRED)
 find_package(GLEW   REQUIRED)
@@ -21,6 +19,7 @@ find_package(glm    REQUIRED)
 add_executable(scratchpad scratchpad.cxx)
 target_link_libraries(scratchpad ${OPENGL_gl_LIBRARY} GLEW glfw)
 
+# Change the location to wherever your aneursym obj files are present.
 resource_dirs( "${CMAKE_SOURCE_DIR}/../aneurysm")
 set(copy_source_dir "${CMAKE_SOURCE_DIR}/")
 set(copy_dest_dir "${CMAKE_BINARY_DIR}/")
@@ -30,23 +29,3 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${copy_source_dir}/${copy_file_name}" "${copy_dest_dir}/${copy_file_name}"
     COMMENT "Copying ${copy_file_name} to build directory"
 )
-
-#[[
-set(copy_source_dir "${CMAKE_SOURCE_DIR}/..")
-set(copy_dest_dir "${CMAKE_BINARY_DIR}/")
-set(copy_file_name "aneurysm")
-add_custom_command(
-    TARGET ${PROJECT_NAME} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${copy_dest_dir}
-)
-add_custom_command(
-    TARGET ${PROJECT_NAME} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${copy_source_dir}/${copy_file_name}" "${copy_dest_dir}/${copy_file_name}"
-    COMMENT "Copying ${copy_file_name} to build directory"
-)
-]]
-#if(APPLE)
-#  target_link_libraries(project2B ${OPENGL_gl_LIBRARY} GLEW::glew_s glfw)
-#else()
-#  target_link_libraries(project2B ${OPENGL_gl_LIBRARY} GLEW glfw)
-#endif()

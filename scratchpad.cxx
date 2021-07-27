@@ -13,6 +13,9 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 using std::cerr;
 using std::endl;
 
@@ -117,14 +120,15 @@ struct ModelGLState
   GLuint data_vbo;
   GLuint normals_vbo;
   GLuint index_ebo;
-
+  GLuint texture;
   ModelGLState()
       : initialized(false),
         vao(0),
         points_vbo(0),
         data_vbo(0),
         normals_vbo(0),
-        index_ebo(0)
+        index_ebo(0),
+        texture(0)
   {
   }
 };
@@ -210,6 +214,30 @@ GLuint LoadAneurysmModel(int ts, int &num_tris, ModelGLState &glState)
   return glState.vao;
 }
 
+void LoadTexture(const char *name, ModelGLState &glState)
+{
+  glGenTextures(1, &glState.texture);
+  glBindTexture(GL_TEXTURE_2D, glState.texture);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+  int width, height, numChannels;
+  unsigned char *data = stbi_load(name, &width, &height, &numChannels, 0);
+  if (data)
+  {
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+    glGenerateMipmap(GL_TEXTURE_2D);
+  }
+  else
+  {
+    std::cerr << "Failed to load texture: " << name << std::endl;
+  }
+
+  stbi_image_free(data);
+}
+
 #ifdef VERTEX_LIGHTING
 const char *vertexShader =
     "#version 400\n"
@@ -283,7 +311,9 @@ int main()
   glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-  GLFWwindow *window = glfwCreateWindow(1280, 1280, "Aneurysm", NULL, NULL);
+  const int WIDTH = 1280;
+  const int HEIGHT = 1280;
+  GLFWwindow *window = glfwCreateWindow(WIDTH, HEIGHT, "Aneurysm", NULL, NULL);
   if (!window)
   {
     fprintf(stderr, "ERROR: could not open window with GLFW3\n");
@@ -312,7 +342,7 @@ int main()
   const char *fragment_shader = fragmentShader;
 #elif defined(FRAGMENT_LIGHTING)
   std::string vertex_shader_str = ReadFile("shaders/frag_light_vertex.vs");
-  std::string fragment_shader_str = ReadFile("shaders/frag_light_fragment.fs");
+  std::string fragment_shader_str = ReadFile("shaders/frag_light_ggx.fs");
   const char *vertex_shader = vertex_shader_str.c_str();
   const char *fragment_shader = fragment_shader_str.c_str();
 #endif
@@ -347,6 +377,10 @@ int main()
 
   glUseProgram(shader_programme);
 
+  ModelGLState modelState;
+#if defined(FRAGMENT_LIGHTING)
+  LoadTexture("shaders/Gradient2.jpg", modelState);
+#endif
   // Projection matrix : 30° Field of View
   // display size  : 1000x1000
   // display range : 5 unit <-> 200 units
@@ -382,14 +416,16 @@ int main()
   glm::vec4 lightcoeff(0.3, 0.7, 2.8, 50.5); // Lighting coeff, Ka, Kd, Ks, alpha
   GLuint lcoeloc = glGetUniformLocation(shader_programme, "lightcoeff");
   glUniform4fv(lcoeloc, 1, &lightcoeff[0]);
+  GLuint resolutionLoc = glGetUniformLocation(shader_programme, "resolution");
+  glm::i32vec2 resolution(WIDTH, HEIGHT);
+  glUniform2iv(resolutionLoc, 1, glm::value_ptr(resolution));
 
   int counter = 0;
   float phi = 0.0;
-  float theta = 0.0;
+  float theta = 0.5 * glm::pi<float>(); // 0.0;
   float distance = 50.0;
   float max_phi = 2.0 * glm::pi<float>();
   float max_theta = 2.0 * glm::pi<float>();
-  ModelGLState modelState;
 
   const float frameSpeed = 1.0 / 60.0;
   const float updateSpeed = 1.0 / 60.0;
@@ -409,7 +445,6 @@ int main()
     {
       vao = LoadAneurysmModel(counter, num_tris, modelState);
       counter = (counter + 1) % 200;
-
       camera = glm::vec3(
           distance * cos(phi) * sin(theta),
           distance * sin(phi) * sin(theta),
@@ -428,7 +463,9 @@ int main()
       glm::vec3 lightdir = glm::normalize(camera - origin); // Direction of light
       GLuint ldirloc = glGetUniformLocation(shader_programme, "lightdir");
       glUniform3fv(ldirloc, 1, &lightdir[0]);
-
+      GLuint lightloc = glGetUniformLocation(shader_programme, "lightloc");
+      glm::vec3 light = camera;
+      glUniform3fv(lightloc, 1, &light[0]);
       phi = fmod(phi + inc_phi, max_phi);
       theta = fmod(theta + inc_theta, max_theta);
 
@@ -440,7 +477,12 @@ int main()
 
     if (deltaFrameTime >= frameSpeed)
     {
+      glClearColor(0.4, 0.4, 0.4, 1.0);
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+#if defined(FRAGMENT_LIGHTING)
+      glActiveTexture(GL_TEXTURE0);
+      glBindTexture(GL_TEXTURE_2D, modelState.texture);
+#endif
       glBindVertexArray(vao);
       // Draw triangles
       glDrawElements(GL_TRIANGLES, 3 * num_tris, GL_UNSIGNED_INT, NULL);
